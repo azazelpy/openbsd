@@ -1,0 +1,31 @@
+# OpenBSD KDE Desktop Suite - Git Ignore
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Log files
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
