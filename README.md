@@ -322,7 +322,16 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 - **OpenBSD Team** - For creating the most secure operating system
 - **KDE Community** - For the beautiful Plasma desktop
-- **Isotop Project** - Original inspiration for automation scripts
+- **Isotop Project** ([sp00cky/isotop](https://github.com/sp00cky/isotop)) - Original inspiration for OpenBSD desktop automation scripts
+
+---
+
+## 📚 References
+
+This project was inspired by:
+- **Isotop** - OpenBSD desktop configuration suite (https://github.com/sp00cky/isotop)
+- **OpenBSD FAQ** - Installation and configuration guides (https://www.openbsd.org/faq/)
+- **KDE Documentation** - Plasma setup and customization (https://docs.kde.org/)
 
 ---
 
