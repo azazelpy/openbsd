@@ -6,6 +6,8 @@
 [![OpenBSD](https://img.shields.io/badge/OpenBSD-7.8-fuchsia.svg)](https://www.openbsd.org)
 [![KDE](https://img.shields.io/badge/KDE-Plasma%206-blue.svg)](https://kde.org)
 [![Shell](https://img.shields.io/badge/Shell-ksh-444444.svg)](https://man.openbsd.org/ksh)
+[![Security](https://img.shields.io/badge/security-audited-green.svg)](output/openbsd-audit-2026-04-03.md)
+[![Updated](https://img.shields.io/badge/updated-April%202026-informational.svg)](README.md)
 
 ---
 
@@ -36,6 +38,8 @@ All scripts are:
 | `setup-root.sh` | System-wide configuration | Root | 10-15 min |
 | `setup-user.sh` | User desktop configuration | User | 5 min |
 | `setup-vmware.sh` | VMware guest optimization | Root | 2 min |
+| `validate-install.sh` | Verify installation ✅ NEW | User | 1 min |
+| `rollback.sh` | Restore previous config ✅ NEW | Root | 2 min |
 
 ---
 
