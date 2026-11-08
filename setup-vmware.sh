@@ -94,7 +94,7 @@ detect_vmware() {
 	print_info "This script should only run on VMware virtual machines"
 	print_info "If you're sure you're on VMware, you can proceed anyway"
 	printf "\n"
-	read -p "Continue anyway? (y/N) " confirm
+	read -r -p "Continue anyway? (y/N) " confirm
 	case "$confirm" in
 		[yY][eE][sS]|[yY])
 			print_info "Proceeding despite detection failure"
