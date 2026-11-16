@@ -75,6 +75,7 @@ list_backups() {
     print_step "Available backups"
     
     local backups
+    # shellcheck disable=SC2086,SC2012  # pattern is an intentional glob
     backups=$(ls -lt $DEFAULT_BACKUP_PATTERN 2>/dev/null || true)
     
     if [ -z "$backups" ]; then
@@ -186,6 +187,7 @@ main() {
         fi
     else
         # Find latest backup
+        # shellcheck disable=SC2086,SC2012  # pattern is an intentional glob
         BACKUP_DIR=$(ls -t $DEFAULT_BACKUP_PATTERN 2>/dev/null | head -1)
         
         if [ -z "$BACKUP_DIR" ]; then
@@ -233,4 +235,4 @@ main() {
 }
 
 # Run main function
-main
+main "$@"

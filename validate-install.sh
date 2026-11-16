@@ -19,7 +19,6 @@ set -e
 # CONFIGURATION
 # ============================================================================
 VERSION="1.0.0"
-SCRIPT_NAME="validate-install.sh"
 PASSED=0
 FAILED=0
 WARNINGS=0
@@ -208,6 +207,7 @@ check_backup_exists() {
     if ls /root/openbsd-kde-backup-* >/dev/null 2>&1; then
         print_pass
         local latest_backup
+        # shellcheck disable=SC2012
         latest_backup=$(ls -t /root/openbsd-kde-backup-* | head -1)
         echo "  Latest: $latest_backup"
     else
