@@ -17,8 +17,8 @@
 #   * polkit and consolekit2 have NO rc.d script: D-Bus starts them on demand.
 #     There is nothing to "enable" for them.
 #   * tmux is in the base system, not a package.
-#   * vim: 7.8 ships a -no_x11 flavour; 8.0 dropped that flavour and made the
-#     default build console-only (only -gtk3 enables the GUI). Handled by OSVER.
+#   * vim: only 7.8 ships a -no_x11 flavour. 7.9 and 8.0 dropped it and made
+#     the default build console-only (only -gtk3 enables the GUI). See OSVER.
 # ============================================================================
 
 set -eu
@@ -289,13 +289,13 @@ install_packages() {
 		step "Installing optional CLI tools (tmux is already in base)"
 		install_one git 'git-*' || PKG_FAIL=$((PKG_FAIL + 1))
 		case "${OSVER:-}" in
-		8.* | 9.* | [1-9][0-9].*)
-			# 8.0 dropped the -no_x11 flavour and made the default vim build
-			# console-only; -gtk3 is the only GUI flavour left.
-			install_one vim 'vim-[0-9]*' || PKG_FAIL=$((PKG_FAIL + 1))
+		7.8)
+			# Only 7.8 ships the -no_x11 flavour. 7.9 and 8.0 dropped it and
+			# made the default build console-only; -gtk3 is the GUI flavour.
+			install_one vim--no_x11 'vim-*-no_x11' || PKG_FAIL=$((PKG_FAIL + 1))
 			;;
 		*)
-			install_one vim--no_x11 'vim-*-no_x11' || PKG_FAIL=$((PKG_FAIL + 1))
+			install_one vim 'vim-[0-9]*' || PKG_FAIL=$((PKG_FAIL + 1))
 			;;
 		esac
 		install_one nano 'nano-*' || PKG_FAIL=$((PKG_FAIL + 1))

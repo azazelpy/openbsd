@@ -107,7 +107,7 @@ this shape. The per-release detail is in [`COMPATIBILITY.md`](COMPATIBILITY.md).
 | KDE meta package | `kde-plasma` ✅ (exists; pulls Plasma 6.4.5) | `kde-plasma-6.7.5p0` → Plasma 6.7.5 |
 | D-Bus package | `messagebus` ❌ no such package | `dbus-1.16.2p1v0` (rc.d daemon: `messagebus`) |
 | `tmux` | installed as a package ❌ | already in the base system |
-| `vim` | `pkg_add vim` ❌ ambiguous flavours | 7.8: `vim--no_x11`; **8.0: plain `vim`** (default is console-only, only `-gtk3` is GUI) |
+| `vim` | `pkg_add vim` ❌ ambiguous flavours | 7.8: `vim--no_x11`; **7.9/8.0: plain `vim`** (default is console-only, only `-gtk3` is GUI) |
 | Session binary | `startkde` ❌ removed in Plasma 6 | `/usr/local/bin/startplasma-x11` (still shipped in 6.7.5) |
 | polkit / consolekit2 | `rcctl enable` ❌ no rc.d script | D-Bus activated, nothing to enable (still true in 8.0: `polkit-127p0`, `consolekit2-1.2.7p0`) |
 | VMware Tools | `pkg_add vmware-tools` ❌ | `vmt(4)` in base + `vmwh-1.2v0` package |

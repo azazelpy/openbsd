@@ -31,10 +31,14 @@ fact below was read from the 8.0 package index (13 063 entries), the `.tgz`
 - `setup-root.sh`: the X11-set error names the sets for *your* release
   (`xbase80` on 8.0) instead of a hardcoded `xbase78`, and `OSVER` is captured
   once in the pre-flight instead of being a local.
-- `setup-root.sh`: `--tools` installs `vim` instead of `vim--no_x11` on 8.x.
-  8.0 dropped the `-no_x11` flavour and made the default build console-only
-  (wantlib: `curses`, `iconv`, `intl`, `m`, `sodium` — no X11). 7.8/7.9 keep
-  `vim--no_x11`.
+- `setup-root.sh`: `--tools` installs `vim` instead of `vim--no_x11` from 7.9
+  onward. The `-no_x11` flavour exists **only** in 7.8; 7.9 (`vim-9.2.357`) and
+  8.0 (`vim-9.2.1125p0`) ship a console-only default (wantlib: `c`, `curses`,
+  `iconv`, `intl`, `m`, `sodium` — no X11) and offer `-gtk3` for the GUI.
+- Folded in while checking 7.9: its index (13 047 entries) also has
+  `kde-plasma-6.6.4`, `plasma-workspace-6.6.4` with `bin/startplasma-x11`,
+  `polkit-127p0` and `consolekit2-1.2.6p6` with no rc.d script, and
+  `vmwh-1.2v0` — so 7.9 is now a verified column, not just "pre-flight passes".
 - Docs: README badge and quick start target 8.0; `INSTALL.md` lists both set
   names; `TROUBLESHOOTING.md` no longer says `pkg_add pulseaudio plasma-pa`
   (both arrive with `kde-plasma` via `plasma-pa`).
