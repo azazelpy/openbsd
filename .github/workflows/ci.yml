@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-behavioural:
+    name: lint + user setup test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ksh-compatible shell, shellcheck and shfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mksh shellcheck
+          # shfmt is optional: tests/lint.sh skips the formatting section when
+          # the binary is absent, so a missing package must not fail the job.
+          sudo apt-get install -y --no-install-recommends shfmt ||
+            echo "shfmt not available in this image; formatting check will be skipped"
+
+      - name: Static checks (syntax, shellcheck, invariants, links)
+        run: ./tests/lint.sh
+
+      - name: setup-user.sh integration test (idempotency + dry-run)
+        run: ./tests/test-user-setup.sh
+
+      - name: Report versions used
+        if: always()
+        run: |
+          mksh -c 'echo mksh ok'
+          shellcheck --version | head -2

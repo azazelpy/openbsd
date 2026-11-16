@@ -1,367 +1,217 @@
 # 🌐 OpenBSD KDE Desktop Suite
 
-> **Modern, Clean, Professional KDE Plasma on OpenBSD 7.8**
+> **KDE Plasma 6 on OpenBSD 8.0 — automated, idempotent, reversible**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OpenBSD](https://img.shields.io/badge/OpenBSD-7.8-fuchsia.svg)](https://www.openbsd.org)
-[![KDE](https://img.shields.io/badge/KDE-Plasma%206-blue.svg)](https://kde.org)
+[![OpenBSD](https://img.shields.io/badge/OpenBSD-8.0%20%7C%207.9%20%7C%207.8-fuchsia.svg)](https://www.openbsd.org)
 [![Shell](https://img.shields.io/badge/Shell-ksh-444444.svg)](https://man.openbsd.org/ksh)
-[![Security](https://img.shields.io/badge/security-audited-green.svg)](output/openbsd-audit-2026-04-03.md)
-[![Updated](https://img.shields.io/badge/updated-April%202026-informational.svg)](README.md)
+[![CI](https://github.com/azazelpy/openbsd/actions/workflows/ci.yml/badge.svg)](https://github.com/azazelpy/openbsd/actions/workflows/ci.yml)
 
 ---
 
-## 🎯 Overview
+## Overview
 
-**OpenBSD KDE Desktop Suite** provides production-ready automation scripts for setting up a modern **KDE Plasma** desktop environment on OpenBSD 7.8.
+Five small `ksh` scripts that turn a fresh OpenBSD 8.0 install into a KDE Plasma
+desktop, one that verifies the result, and one that undoes it. Every script is
+idempotent, every file it touches is backed up first, and every action can be
+previewed with `--dry-run`.
 
-Unlike Xfce (lightweight but basic), KDE Plasma offers:
-- ✨ **Modern, polished interface** with animations and effects
-- 🔧 **Extensive customization** without editing config files
-- 📦 **Integrated ecosystem** (Dolphin, Kate, Konsole, etc.)
-- 🎨 **Beautiful default theme** with dark mode support
-- 🚀 **Excellent HiDPI support** for modern displays
-
-All scripts are:
-- ✅ **Syntax-validated** for ksh (OpenBSD shell)
-- ✅ **Idempotent** - safe to run multiple times
-- ✅ **Backup-first** - preserves existing configs
-- ✅ **Well-documented** - inline comments and clear output
-- ✅ **Tested** - on real OpenBSD 7.8 systems
-
----
-
-## 📦 What's Included
-
-| Script | Purpose | Run As | Time |
+| Script | Purpose | Run as | Time |
 |--------|---------|--------|------|
-| `setup-root.sh` | System-wide configuration | Root | 10-15 min |
-| `setup-user.sh` | User desktop configuration | User | 5 min |
-| `setup-vmware.sh` | VMware guest optimization | Root | 2 min |
-| `validate-install.sh` | Verify installation ✅ NEW | User | 1 min |
-| `rollback.sh` | Restore previous config ✅ NEW | Root | 2 min |
+| `setup-root.sh` | packages, mirror, doas, xenodm, touchpad | root | 10–20 min |
+| `setup-user.sh` | session, shell env, KDE defaults, utilities | user | <1 min |
+| `validate-install.sh` | read-only verification, `--json` mode | user | seconds |
+| `rollback.sh` | restore the configs saved by `setup-root.sh` | root | seconds |
+| `setup-vmware.sh` | VMware guest helper (`vmwh`), only inside a VM | root | 1 min |
+
+Shared helpers live in `lib/common.sh`: logging, `--dry-run`, `--yes`,
+timestamped backups, and the OpenBSD primitives (`pkg_info -e`,
+`rcctl get … status`).
 
 ---
 
-## 🚀 Quick Start
+## Quick start
 
-### Prerequisites
-
-1. **OpenBSD 7.8** installed with X11 file sets:
-   - `xbase78`
-   - `xshare78`
-   - `xfont78`
-   - `xserv78`
-
-2. **Internet connectivity** for package downloads
-
-3. **Root access** via `doas`
-
-### Installation (15 minutes)
+Prerequisites: OpenBSD 8.0 (or 7.9 / 7.8) with the X11 sets — `xbase80`,
+`xshare80`, `xfont80`, `xserv80` on 8.0, `xbase78` … on 7.8 — network access,
+and your user in the `wheel` group.
 
 ```sh
-# 1. Clone repository
 git clone https://github.com/azazelpy/openbsd.git
 cd openbsd
 
-# 2. System configuration (run as root)
-doas ksh setup-root.sh
-
-# 3. User configuration (run as regular user)
-ksh setup-user.sh
-
-# 4. Optional: VMware optimization (only if running in VMware)
-doas ksh setup-vmware.sh
-
-# 5. Reboot
-doas reboot
+doas ksh setup-root.sh        # 1. system: packages + daemons
+ksh setup-user.sh             # 2. your account: session + shell
+doas reboot                   # 3. reboot
 ```
 
-After reboot:
-1. Login via **xenodm** (display manager)
-2. Select **KDE Plasma** session
-3. Enjoy your modern OpenBSD desktop!
+After the reboot, log in at the xenodm prompt: the session defined in
+`~/.xsession` starts Plasma.
 
----
+> **xenodm has no session menu.** 2.0.0 told you to "click Session → KDE".
+> The session is `~/.xsession`, which `setup-user.sh` writes. A session picker
+> is a feature of SDDM/GDM, not of xenodm.
 
-## 🛠️ Scripts Detail
-
-### 1. setup-root.sh (System Configuration)
-
-**Run:** `doas ksh setup-root.sh`
-
-**What it does:**
-- ✅ Configures package mirror (`/etc/installurl`)
-- ✅ Updates all packages to latest versions
-- ✅ Installs KDE Plasma desktop (`kde-plasma`)
-- ✅ Installs KDE applications (Dolphin, Kate, Konsole, etc.)
-- ✅ Sets up system daemons (D-Bus, PolicyKit, ConsoleKit2)
-- ✅ Configures `doas` for privilege escalation
-- ✅ Enables `xenodm` display manager
-- ✅ Applies system optimizations (`/etc/sysctl.conf`)
-- ✅ Creates configuration backups
-
-**Packages installed:**
-```
-kde-plasma           # Full KDE Plasma desktop
-kde-apps             # Core KDE applications
-dolphin              # File manager
-kate                 # Text editor
-konsole              # Terminal emulator
-firefox              # Web browser
-thunderbird          # Email client
-git                  # Version control
-vim, nano            # Text editors
-htop, tmux           # System tools
-```
-
----
-
-### 2. setup-user.sh (User Configuration)
-
-**Run:** `ksh setup-user.sh` (NOT as root)
-
-**What it does:**
-- ✅ Creates `.xsession` for KDE Plasma (xenodm)
-- ✅ Creates `.xinitrc` for `startx` fallback
-- ✅ Configures `.profile` with environment variables
-- ✅ Configures `.kshrc` with useful aliases
-- ✅ Sets up KDE configuration directory
-- ✅ Creates utility scripts (lock-screen, system-info)
-- ✅ Configures touchpad tapping
-- ✅ Applies KDE color scheme (dark mode)
-
-**Files created:**
-```
-~/.xsession              # KDE session (xenodm)
-~/.xinitrc               # X init (startx)
-~/.profile               # Shell environment
-~/.kshrc                 # Ksh aliases
-~/.config/kdeglobals     # KDE global settings
-~/.local/bin/            # Utility scripts
-```
-
----
-
-### 3. setup-vmware.sh (VMware Optimization)
-
-**Run:** `doas ksh setup-vmware.sh` (only if running in VMware)
-
-**What it does:**
-- ✅ Installs VMware Tools (`vmware-tools`)
-- ✅ Enables VMware services (`vmtoolsd`, `vmblock`)
-- ✅ Configures automatic start at boot
-- ✅ Optimizes display settings
-- ✅ Enables copy-paste between host and guest
-
-**Note:** Skip this script if running on bare metal or other virtualization.
-
----
-
-## 🎨 KDE vs Xfce Comparison
-
-| Feature | KDE Plasma | Xfce |
-|---------|------------|------|
-| **Visual Appeal** | ⭐⭐⭐⭐⭐ Modern, polished | ⭐⭐⭐ Basic, functional |
-| **Customization** | ⭐⭐⭐⭐⭐ Extensive GUI options | ⭐⭐⭐ Requires config editing |
-| **Resource Usage** | ~600MB RAM (idle) | ~400MB RAM (idle) |
-| **HiDPI Support** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐ Limited |
-| **Default Apps** | Full suite (Dolphin, Kate, etc.) | Basic (Thunar, Mousepad) |
-| **Theme Support** | Global themes, colors, icons | Per-component themes |
-| **Effects** | Desktop effects, animations | Minimal effects |
-| **Best For** | Modern desktop experience | Minimalist, low-resource |
-
-**Recommendation:**
-- Choose **KDE Plasma** if you want a modern, polished desktop with excellent HiDPI support
-- Choose **Xfce** if you need minimal resource usage on older hardware
-
----
-
-## 📋 Post-Installation
-
-### First Login
-
-1. At xenodm login screen, select your username
-2. Click **Session** → Select **KDE Plasma**
-3. Enter password and login
-4. KDE Plasma desktop appears
-
-### Recommended First Steps
-
-1. **System Settings** → **Display Configuration**
-   - Set resolution and scaling (especially for HiDPI displays)
-
-2. **System Settings** → **Colors & Themes**
-   - Choose Global Theme (Breeze Dark recommended)
-
-3. **System Settings** → **Window Management**
-   - Configure desktop effects (optional)
-
-4. **System Settings** → **Shortcuts**
-   - Customize keyboard shortcuts
-
-### Useful Commands
+Verify at any time, as your normal user:
 
 ```sh
-# Show system information
-~/.local/bin/system-info
-
-# Lock screen
-~/.local/bin/lock-screen
-
-# Update all packages
-doas pkg_add -u
-
-# Check KDE version
-pkg_info kde-plasma
-
-# Restart KDE (if needed)
-pkill ksmserver
+ksh validate-install.sh          # human readable
+ksh validate-install.sh --json   # last line is machine readable
 ```
+
+Undo the system configuration:
+
+```sh
+doas ksh rollback.sh --list      # what is available
+doas ksh rollback.sh             # restore the newest backup
+```
+
+Every script supports `--dry-run`, `--yes`, `--verbose` and `--help`.
 
 ---
 
-## 🔧 Troubleshooting
+## What `setup-root.sh` does
 
-### Issue: xenodm doesn't start
+1. **Pre-flight** — root check, OpenBSD release check, X11 sets present.
+2. **Backup** — `/root/openbsd-kde-backup-<stamp>/` with a `MANIFEST.tsv`
+   (backup path, target path, checksum) covering `doas.conf`, `sysctl.conf`,
+   `installurl`, `rc.conf.local` and `wsconsctl.conf`, plus the installed
+   package list. `rollback.sh` restores exactly what that manifest lists.
+3. **Mirror** — keeps your existing `/etc/installurl`; writes
+   `cdn.openbsd.org` only when the file is missing or empty, or whatever
+   `--mirror URL` says.
+4. **Packages** — `pkg_add -u`, then `kde-plasma` (the meta package that pulls
+   `plasma-desktop`, `plasma-workspace`, `kwin`, `kscreenlocker`, `kf6-dolphin`
+   and `konsole`), plus `dbus`, `polkit` and `consolekit2`; optionally `kate`,
+   `firefox`, `thunderbird` and a small CLI tool set (`--no-apps`,
+   `--no-tools`).
+5. **doas** — adds `permit persist :wheel` **only** if no `:wheel` rule exists,
+   then validates the file with `doas -C`. It never rewrites your rules.
+6. **Daemons** — enables `xenodm` and `messagebus`. Nothing else is needed:
+   `polkit` and `consolekit2` have no `rc.d` script on OpenBSD, D-Bus starts
+   them on demand.
+7. **Touchpad** — writes `mouse.tp.tapping=1` to `/etc/wsconsctl.conf` when a
+   touchpad is detected (`--touchpad` / `--no-touchpad` to override).
+8. **Verify** — packages, `startplasma-x11`, and whether both daemons are
+   *enabled* (enabled ≠ running: a freshly configured box is not running them
+   yet). Exits non-zero when a check fails.
 
-**Solution:**
+### Verified package facts
+
+Checked against the OpenBSD **8.0** package index (13 063 entries) and 7.8.
+Each row was wrong or ambiguous in 2.0.0 and is the reason the suite exists in
+this shape. The per-release detail is in [`COMPATIBILITY.md`](COMPATIBILITY.md).
+
+| Fact | 2.0.0 | 2.1.1 (8.0) |
+|------|-------|-------------|
+| KDE meta package | `kde-plasma` ✅ (exists; pulls Plasma 6.4.5) | `kde-plasma-6.7.5p0` → Plasma 6.7.5 |
+| D-Bus package | `messagebus` ❌ no such package | `dbus-1.16.2p1v0` (rc.d daemon: `messagebus`) |
+| `tmux` | installed as a package ❌ | already in the base system |
+| `vim` | `pkg_add vim` ❌ ambiguous flavours | 7.8: `vim--no_x11`; **7.9/8.0: plain `vim`** (default is console-only, only `-gtk3` is GUI) |
+| Session binary | `startkde` ❌ removed in Plasma 6 | `/usr/local/bin/startplasma-x11` (still shipped in 6.7.5) |
+| polkit / consolekit2 | `rcctl enable` ❌ no rc.d script | D-Bus activated, nothing to enable (still true in 8.0: `polkit-127p0`, `consolekit2-1.2.7p0`) |
+| VMware Tools | `pkg_add vmware-tools` ❌ | `vmt(4)` in base + `vmwh-1.2v0` package |
+| Audio | manual PulseAudio setup | `plasma-pa-6.7.5` pulls `pulseaudio-17.0p4` |
+
+---
+
+## What `setup-user.sh` does
+
+| File | Content |
+|------|---------|
+| `~/.xsession` | `startplasma-x11`, wrapped in `ck-launch-session` when available; starts `vmwh` in a VMware guest |
+| `~/.xinitrc` | loads `~/.xsession`, so `startx` and xenodm share one definition |
+| `~/.profile` | `export ENV=$HOME/.kshrc`, `~/.local/bin` in `PATH`, editor and pager |
+| `~/.kshrc` | four `ls` aliases, `mkcd`, `extract` — no aliases that shadow core tools |
+| `~/.config/kdeglobals` | Breeze Dark look-and-feel, written only on first run |
+| `~/.local/bin/system-info` | release, CPU, RAM, disk, KDE version, uptime |
+| `~/.local/bin/lock-screen` | locks via `dbus-send` to `org.kde.screensaver` |
+| `~/.local/bin/kde-restart` | restarts `plasmashell` only, never the session |
+| `~/.local/bin/update-system` | `pkg_add -u` plus a `syspatch` reminder |
+
+`export ENV=$HOME/.kshrc` is not cosmetic: ksh reads `~/.kshrc` only when `ENV`
+points at it, so without that line the aliases never load. 2.0.0 wrote the
+aliases and not the export.
+
+`--hidpi 144` additionally writes `Xft.dpi` to `~/.Xresources`.
+
+---
+
+## Requirements and expectations
+
+- **OpenBSD 8.0** is the current target and **7.8** the previous one; both are
+  verified against their own package indexes. 7.9 passes the pre-flight check.
+  Anything newer warns and continues.
+- **~2 GB free on `/usr`** and roughly **600–800 MB of RAM** for a Plasma
+  session. Measure on your own hardware: these are order-of-magnitude figures,
+  not benchmarks.
+- **xenodm is enabled at boot** by `setup-root.sh`. If you use another display
+  manager, `doas rcctl disable xenodm` before rebooting.
+
+---
+
+## Troubleshooting
+
+Short list — the full matrix is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md):
+
 ```sh
-# Check xenodm status
-doas rcctl check xenodm
-
-# Enable xenodm
+doas rcctl get xenodm status        # enabled?  (rcctl check means "running")
 doas rcctl enable xenodm
-
-# Start xenodm
-doas rcctl start xenodm
-```
-
-### Issue: KDE doesn't appear in session list
-
-**Solution:**
-```sh
-# Verify KDE installation
-pkg_info kde-plasma
-
-# Reinstall if needed
-doas pkg_add -u kde-plasma
-
-# Check X session file
-ls -la /usr/local/share/xsessions/
-```
-
-### Issue: No sound
-
-**Solution:**
-```sh
-# Install PulseAudio
-doas pkg_add pulseaudio
-
-# Add user to audio group
-doas usermod -G audio $(whoami)
-
-# Reboot
-doas reboot
-```
-
-### Issue: VMware copy-paste doesn't work
-
-**Solution:**
-```sh
-# Verify VMware Tools installed
-pkg_info vmware-tools
-
-# Check services running
-doas rcctl check vmtoolsd
-doas rcctl check vmblock
-
-# Restart services
-doas rcctl restart vmtoolsd
-doas rcctl restart vmblock
+ls -l ~/.xsession                   # must be executable and exec startplasma-x11
+tail -50 ~/.xsession-errors         # the session's own log
+tail -50 /var/log/xenodm.log        # what xenodm saw
+ksh validate-install.sh             # what is actually installed
 ```
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 | Document | Description |
 |----------|-------------|
-| `README.md` | This file - quick start and overview |
-| `INSTALL.md` | Detailed installation guide |
-| `KDE-CUSTOMIZATION.md` | KDE Plasma customization guide |
-| `TROUBLESHOOTING.md` | Common issues and solutions |
-| `CHANGELOG.md` | Version history and changes |
+| `README.md` | this file |
+| [INSTALL.md](INSTALL.md) | step-by-step install, manual fallback, uninstall |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | symptom → cause → fix |
+| [KDE-CUSTOMIZATION.md](KDE-CUSTOMIZATION.md) | HiDPI, fonts, panels, default apps |
+| [CHANGELOG.md](CHANGELOG.md) | version history, including every 2.1.0 fix |
+| [SECURITY.md](SECURITY.md) | what runs as root, what it touches, how to review it |
+| [AUDITORIA.md](AUDITORIA.md) | audit of 2.0.0: findings, evidence, status |
 
 ---
 
-## 🤝 Contributing
+## Development
 
-Contributions welcome! Areas for improvement:
-- Additional KDE customizations
-- More utility scripts
-- Documentation improvements
-- Bug fixes and optimizations
+```sh
+./tests/lint.sh              # mksh -n, shellcheck (ksh dialect), repo invariants
+./tests/test-user-setup.sh   # runs setup-user.sh twice against a throw-away HOME
+```
 
-### How to Contribute
+Both run in CI (`.github/workflows/ci.yml`) on every push and pull request. The
+lint step also fails when one of the verified-broken patterns above reappears,
+so those regressions cannot come back silently.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test thoroughly on OpenBSD 7.8
-5. Commit with clear messages
-6. Submit a pull request
+What CI does **not** cover: a full `setup-root.sh` run, which needs a real
+OpenBSD machine (it refuses to run elsewhere by design). Package names are
+checked against the published package index; the installer itself is not
+exercised on a live box.
 
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-**TL;DR:** Use it, modify it, share it. Just don't hold us liable.
+Contributions: fork, branch, keep `./tests/lint.sh` green, open a PR.
 
 ---
 
-## 🙏 Acknowledgments
+## License
 
-- **OpenBSD Team** - For creating the most secure operating system
-- **KDE Community** - For the beautiful Plasma desktop
-- **Isotop Project** ([sp00cky/isotop](https://github.com/sp00cky/isotop)) - Original inspiration for OpenBSD desktop automation scripts
+MIT — see [LICENSE](LICENSE).
 
----
+## Acknowledgements
 
-## 📚 References
+- The OpenBSD project, for the base system and the package infrastructure.
+- The KDE community, for Plasma 6.
+- [Isotop](https://github.com/sp00cky/isotop), for the original inspiration to
+  automate an OpenBSD desktop.
 
-This project was inspired by:
-- **Isotop** - OpenBSD desktop configuration suite (https://github.com/sp00cky/isotop)
-- **OpenBSD FAQ** - Installation and configuration guides (https://www.openbsd.org/faq/)
-- **KDE Documentation** - Plasma setup and customization (https://docs.kde.org/)
+## References
 
----
-
-## 📊 Repository Stats
-
-[![GitHub stars](https://img.shields.io/github/stars/azazelpy/openbsd?style=social)](https://github.com/azazelpy/openbsd/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/azazelpy/openbsd?style=social)](https://github.com/azazelpy/openbsd/network/members)
-[![GitHub issues](https://img.shields.io/github/issues/azazelpy/openbsd)](https://github.com/azazelpy/openbsd/issues)
-
----
-
-## 📞 Support
-
-**Issues:** Use [GitHub Issues](https://github.com/azazelpy/openbsd/issues)
-
-**Discussions:** Use [GitHub Discussions](https://github.com/azazelpy/openbsd/discussions)
-
-**Documentation:** Check `INSTALL.md` and `TROUBLESHOOTING.md`
-
----
-
-**Created with ❤️ for the OpenBSD community**
-
-☘️ **Quality over speed. Professional setups take time.**
-
----
-
-*Last updated: 2026-03-17*
-*Version: 2.0.0 (KDE Plasma Edition)*
+- OpenBSD FAQ — https://www.openbsd.org/faq/
+- OpenBSD packages and ports — https://www.openbsd.org/faq/faq15.html
+- KDE Plasma documentation — https://docs.kde.org/

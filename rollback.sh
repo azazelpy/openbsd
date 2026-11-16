@@ -1,236 +1,278 @@
 #!/bin/ksh
 # ============================================================================
-# OpenBSD KDE Desktop Suite - Configuration Rollback
+# OpenBSD KDE Desktop Suite - Configuration rollback (run as root)
 # ============================================================================
-# Script: rollback.sh
-# Version: 1.0.0
-# Purpose: Restore previous configuration from backup
-# Usage: doas ksh rollback.sh [backup_directory]
+# Script:  rollback.sh
+# Version: 2.1.0
+# Purpose: restore the configuration files saved by setup-root.sh
+# Usage:   doas ksh rollback.sh [--list | --dir DIR] [--yes]
+# License: MIT License - https://github.com/azazelpy/openbsd
 # ============================================================================
-# Author: Friday (AI Assistant)
-# Created: 2026-04-03
-# License: MIT License
-# Repository: https://github.com/azazelpy/openbsd
+#
+# 2.0.0 used [[ =~ ]], which OpenBSD ksh does not implement: the script died
+# with a syntax error before it could restore anything. It also claimed to
+# restore /etc/rc.conf.local, which setup-root.sh never backed up.
+# Both are fixed here: restore is driven by the backup's MANIFEST.tsv.
 # ============================================================================
 
-set -e
+set -eu
+set -o pipefail 2>/dev/null || true
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-VERSION="1.0.0"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/common.sh"
+
 SCRIPT_NAME="rollback.sh"
-DEFAULT_BACKUP_PATTERN="/root/openbsd-kde-backup-*"
+BACKUP_DIR=""
+LIST_ONLY=0
+# Fallback map for backups created by 2.0.0 (no MANIFEST.tsv)
+LEGACY_FILES="doas.conf:/etc/doas.conf sysctl.conf:/etc/sysctl.conf Xsetup_0:/etc/X11/xenodm/Xsetup_0"
 
-# ============================================================================
-# COLOR OUTPUT FUNCTIONS
-# ============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+usage() {
+	cat <<'USAGE'
+rollback.sh - restore configuration saved by setup-root.sh
 
-print_header() {
-    printf "\n%s%s%s\n" "$CYAN" "========================================" "$NC"
-    printf "%s%s%s\n" "$CYAN" "  $1" "$NC"
-    printf "%s%s%s\n" "$CYAN" "========================================" "$NC"
+Usage: doas ksh rollback.sh [options]
+
+Options:
+      --list        show available backups and exit
+      --dir DIR     use a specific backup directory (default: newest)
+  -n, --dry-run     print what would be restored, change nothing
+  -y, --yes         do not ask for confirmation
+  -h, --help        this help
+
+What is restored, driven by <backup>/MANIFEST.tsv:
+  FILE     every file the installer modified (doas.conf, sysctl.conf,
+           installurl, rc.conf.local, wsconsctl.conf), checksum verified
+  ABSENT   files the installer created are removed again (installurl,
+           wsconsctl.conf, rc.conf.local) when they did not exist before
+  SERVICE  messagebus/xenodm go back to the enabled/disabled state they had
+
+Installed packages are NOT removed - the script prints the pkg_delete
+command instead, because removing KDE is a separate decision.
+USAGE
 }
 
-print_step() {
-    printf "\n%s%s%s\n" "$BLUE" "==> $1" "$NC"
-}
-
-print_success() {
-    printf "%s✓ %s%s\n" "$GREEN" "$1" "$NC"
-}
-
-print_warning() {
-    printf "%s⚠ %s%s\n" "$YELLOW" "$1" "$NC"
-}
-
-print_error() {
-    printf "%s✗ ERROR: %s%s\n" "$RED" "$1" "$NC"
-}
-
-print_info() {
-    printf "%sℹ %s%s\n" "$MAGENTA" "$1" "$NC"
-}
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-check_root() {
-    if [ "$(id -u)" != "0" ]; then
-        print_error "This script must be run as root"
-        print_info "Usage: doas ksh $SCRIPT_NAME [backup_directory]"
-        exit 1
-    fi
-    print_success "Running as root"
+parse_args() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--list)
+			LIST_ONLY=1
+			shift
+			;;
+		--dir)
+			[ $# -ge 2 ] || die "$1 needs an argument"
+			BACKUP_DIR=$2
+			shift 2
+			;;
+		-n | --dry-run)
+			DRY_RUN=1
+			shift
+			;;
+		-y | --yes)
+			ASSUME_YES=1
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*) die "unknown option: $1 (try --help)" ;;
+		esac
+	done
 }
 
 list_backups() {
-    print_step "Available backups"
-    
-    local backups
-    backups=$(ls -lt $DEFAULT_BACKUP_PATTERN 2>/dev/null || true)
-    
-    if [ -z "$backups" ]; then
-        print_error "No backups found"
-        print_info "Backups should be in: /root/openbsd-kde-backup-*"
-        exit 1
-    fi
-    
-    printf "\n%s\n" "$backups"
-    printf "\n"
+	hdr "Available backups (/root/openbsd-kde-backup-*)"
+	_found=0
+	for _d in /root/openbsd-kde-backup-*; do
+		[ -d "$_d" ] || continue
+		_found=$((_found + 1))
+		if [ -f "$_d/MANIFEST.tsv" ]; then
+			printf '  %s  (%s files, manifest)\n' "$_d" \
+				"$(grep -c . "$_d/MANIFEST.tsv" 2>/dev/null || echo 0)"
+		else
+			printf '  %s  (legacy layout, no manifest)\n' "$_d"
+		fi
+	done
+	[ "$_found" -gt 0 ] || warn "no backups found"
+	return 0
 }
 
-restore_file() {
-    local backup_file="$1"
-    local original_path="$2"
-    
-    if [ -f "$backup_file" ]; then
-        cp "$backup_file" "$original_path"
-        print_success "Restored: $original_path"
-    else
-        print_warning "Not found: $backup_file"
-    fi
+latest_backup() {
+	# Directory names embed YYYYmmdd-HHMMSS, so a name sort is a time sort.
+	for _d in /root/openbsd-kde-backup-*; do
+		[ -d "$_d" ] && printf '%s\n' "$_d"
+	done | sort | tail -1
 }
 
-# ============================================================================
-# ROLLBACK FUNCTIONS
-# ============================================================================
+restore_one() {
+	_b=$1
+	_o=$2
+	_want=${3:-}
 
-restore_configuration() {
-    local backup_dir="$1"
-    
-    print_step "Restoring configuration from: $backup_dir"
-    
-    # Restore doas.conf
-    if [ -f "$backup_dir/doas.conf" ]; then
-        restore_file "$backup_dir/doas.conf" "/etc/doas.conf"
-    fi
-    
-    # Restore sysctl.conf
-    if [ -f "$backup_dir/sysctl.conf" ]; then
-        restore_file "$backup_dir/sysctl.conf" "/etc/sysctl.conf"
-    fi
-    
-    # Restore Xsetup_0
-    if [ -f "$backup_dir/Xsetup_0" ]; then
-        restore_file "$backup_dir/Xsetup_0" "/etc/X11/xenodm/Xsetup_0"
-    fi
-    
-    # Restore rc.conf.local
-    if [ -f "$backup_dir/rc.conf.local" ]; then
-        restore_file "$backup_dir/rc.conf.local" "/etc/rc.conf.local"
-    fi
-    
-    # Restore fstab (if backed up)
-    if [ -f "$backup_dir/fstab" ]; then
-        restore_file "$backup_dir/fstab" "/etc/fstab"
-    fi
-    
-    print_success "Configuration restoration complete"
+	if [ ! -f "$_b" ]; then
+		check_fail "backup file missing: $_b"
+		return 0
+	fi
+
+	# Keep the current file before overwriting it, so a rollback is reversible.
+	if [ -f "$_o" ] && [ "$DRY_RUN" = 0 ]; then
+		cp -p "$_o" "$_o.pre-rollback.$RUNSTAMP" || true
+	fi
+
+	if run cp -p "$_b" "$_o"; then
+		if [ -n "$_want" ] && [ "$_want" != "unavailable" ]; then
+			_got=$(_sha "$_o")
+			if [ "$_got" = "$_want" ]; then
+				check_ok "restored $_o (checksum verified)"
+			else
+				check_warn "restored $_o but checksum differs"
+			fi
+		else
+			check_ok "restored $_o"
+		fi
+	else
+		check_fail "could not restore $_o"
+	fi
+	return 0
+}
+
+restore_service() {
+	_svc=$1
+	_want_state=$2
+
+	if [ "$_want_state" = on ]; then
+		if svc_enabled "$_svc"; then
+			dbg "$_svc was already enabled"
+			return 0
+		fi
+		if run rcctl enable "$_svc"; then
+			check_ok "$_svc enabled again (as before the install)"
+		else
+			check_fail "could not enable $_svc"
+		fi
+		return 0
+	fi
+
+	# It was off before the installation: turn it back off.
+	if svc_enabled "$_svc"; then
+		if run rcctl disable "$_svc"; then
+			check_ok "$_svc disabled (it was off before the install)"
+		else
+			check_fail "could not disable $_svc"
+		fi
+	else
+		dbg "$_svc already disabled"
+	fi
+	return 0
+}
+
+remove_absent() {
+	_o=$1
+	[ -e "$_o" ] || {
+		dbg "already absent: $_o"
+		return 0
+	}
+	if run rm -f "$_o"; then
+		check_ok "removed $_o (it did not exist before the install)"
+	else
+		check_fail "could not remove $_o"
+	fi
+	return 0
+}
+
+restore_all() {
+	_dir=$1
+	tab=$(printf '	')
+
+	if [ -f "$_dir/MANIFEST.tsv" ]; then
+		step "Restoring from manifest: $_dir/MANIFEST.tsv"
+		while IFS="$tab" read -r _type _src _dst _want; do
+			[ -n "${_type:-}" ] || continue
+			case "$_type" in
+			FILE) restore_one "$_src" "$_dst" "${_want:-}" ;;
+			ABSENT) remove_absent "$_dst" ;;
+			SERVICE) restore_service "$_dst" "${_want:-off}" ;;
+			# 2.1.0 before this change wrote three untyped columns.
+			*) restore_one "$_type" "$_src" "${_dst:-}" ;;
+			esac
+		done <"$_dir/MANIFEST.tsv"
+		return 0
+	fi
+
+	step "No manifest: using the 2.0.0 layout in $_dir"
+	for _pair in $LEGACY_FILES; do
+		_name=${_pair%%:*}
+		_target=${_pair#*:}
+		[ -f "$_dir/$_name" ] || continue
+		restore_one "$_dir/$_name" "$_target"
+	done
+	return 0
 }
 
 restart_services() {
-    print_step "Restarting services"
-    
-    # Restart xenodm
-    if rcctl check xenodm >/dev/null 2>&1; then
-        rcctl restart xenodm
-        print_success "Restarted: xenodm"
-    fi
-    
-    # Restart dbus
-    if rcctl check messagebus >/dev/null 2>&1; then
-        rcctl restart messagebus
-        print_success "Restarted: messagebus"
-    fi
-    
-    # Restart polkitd
-    if rcctl check polkitd >/dev/null 2>&1; then
-        rcctl restart polkitd
-        print_success "Restarted: polkitd"
-    fi
-    
-    # Restart consolekit2
-    if rcctl check consolekit2 >/dev/null 2>&1; then
-        rcctl restart consolekit2
-        print_success "Restarted: consolekit2"
-    fi
-    
-    print_success "Services restarted"
+	step "Services"
+	if svc_running messagebus; then
+		run rcctl restart messagebus && ok "messagebus restarted"
+	else
+		info "messagebus is not running: nothing to restart"
+	fi
+	if svc_running xenodm; then
+		warn "xenodm is running: it will pick up the restored Xsetup_0 on next boot"
+	fi
+	return 0
 }
 
-# ============================================================================
-# MAIN SCRIPT
-# ============================================================================
+print_uninstall_hint() {
+	hdr "Restored configuration, packages left in place"
+	info "to remove the desktop as well (your call, then reboot):"
+	printf '  doas pkg_delete kde-plasma dbus polkit consolekit2\n'
+	info "your previous configs are kept as <file>.orig.<timestamp>"
+	return 0
+}
 
 main() {
-    print_header "OpenBSD KDE Desktop - Configuration Rollback"
-    printf "Version: %s\n" "$VERSION"
-    printf "Date: %s\n" "$(date)"
-    
-    check_root
-    
-    # Check if backup directory provided
-    if [ $# -gt 0 ]; then
-        BACKUP_DIR="$1"
-        if [ ! -d "$BACKUP_DIR" ]; then
-            print_error "Backup directory not found: $BACKUP_DIR"
-            exit 1
-        fi
-    else
-        # Find latest backup
-        BACKUP_DIR=$(ls -t $DEFAULT_BACKUP_PATTERN 2>/dev/null | head -1)
-        
-        if [ -z "$BACKUP_DIR" ]; then
-            print_error "No backups found"
-            list_backups
-            exit 1
-        fi
-    fi
-    
-    print_info "Using backup: $BACKUP_DIR"
-    printf "\n"
-    
-    # Confirm rollback
-    print_warning "This will restore previous configuration"
-    printf "Backup: %s\n" "$BACKUP_DIR"
-    printf "\n"
-    printf "Continue? (y/N): "
-    read -r response
-    
-    if [[ ! "$response" =~ ^[Yy]$ ]]; then
-        print_info "Rollback cancelled"
-        exit 0
-    fi
-    
-    # Perform rollback
-    restore_configuration "$BACKUP_DIR"
-    restart_services
-    
-    print_header "Rollback Complete"
-    
-    printf "%sConfiguration restored successfully!%s\n" "$GREEN" "$NC"
-    printf "\n"
-    printf "Next steps:\n"
-    printf "1. Verify system is working correctly\n"
-    printf "2. If needed, reboot: doas reboot\n"
-    printf "3. Review restored configuration files\n"
-    printf "\n"
-    printf "Restored files:\n"
-    printf "  - /etc/doas.conf\n"
-    printf "  - /etc/sysctl.conf\n"
-    printf "  - /etc/X11/xenodm/Xsetup_0\n"
-    printf "  - /etc/rc.conf.local\n"
-    printf "  - /etc/fstab (if backed up)\n"
-    printf "\n"
+	parse_args "$@"
+
+	hdr "OpenBSD KDE Desktop Suite v$SUITE_VERSION - rollback"
+	[ "$DRY_RUN" = 1 ] && warn "DRY RUN: nothing will be modified"
+
+	if [ "$(id -u)" -ne 0 ] && [ "$LIST_ONLY" = 0 ]; then
+		die "run as root: doas ksh $SCRIPT_NAME"
+	fi
+
+	if [ "$LIST_ONLY" = 1 ]; then
+		list_backups
+		exit 0
+	fi
+
+	if [ -z "$BACKUP_DIR" ]; then
+		_backup_base=$(latest_backup)
+		[ -n "$_backup_base" ] || {
+			warn "no backups found"
+			list_backups
+			exit 1
+		}
+		BACKUP_DIR=$_backup_base
+	fi
+
+	[ -d "$BACKUP_DIR" ] || die "backup directory not found: $BACKUP_DIR"
+	BACKUP_MANIFEST=""
+	info "backup: $BACKUP_DIR"
+
+	if ! ask_yes "restore the files listed above?"; then
+		info "cancelled"
+		exit 0
+	fi
+
+	restore_all "$BACKUP_DIR"
+	restart_services
+
+	if summary "rollback"; then
+		print_uninstall_hint
+		exit 0
+	fi
+	exit 1
 }
 
-# Run main function
-main
+main "$@"
