@@ -1,540 +1,466 @@
 #!/bin/ksh
 # ============================================================================
-# OpenBSD KDE Desktop Suite - User Configuration
+# OpenBSD KDE Desktop Suite - User configuration (run as your normal user)
 # ============================================================================
-# Script: setup-user.sh
-# Version: 2.0.0
-# Purpose: User-level KDE Plasma configuration for OpenBSD 7.8
-# Usage: ksh setup-user.sh (NOT as root)
+# Script:  setup-user.sh
+# Version: 2.1.0
+# Purpose: create the KDE Plasma session and shell environment for one user
+# Usage:   ksh setup-user.sh [options]
+# License: MIT License - https://github.com/azazelpy/openbsd
 # ============================================================================
-# Author: Friday (AI Assistant)
-# Created: 2026-03-17
-# License: MIT License
-# Repository: https://github.com/azazelpy/openbsd
+#
+# Verified against OpenBSD 7.8: plasma-workspace installs
+# /usr/local/bin/startplasma-x11; there is no startkde in Plasma 6.
+# ksh reads ~/.kshrc only when $ENV points at it, so .profile exports ENV.
 # ============================================================================
 
-set -e
+set -eu
+set -o pipefail 2>/dev/null || true
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-VERSION="2.0.0"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+. "$SCRIPT_DIR/lib/common.sh"
+
 SCRIPT_NAME="setup-user.sh"
+MARKER="# >>> openbsd-kde-suite"
+HIDPI_DPI=""
 
-# ============================================================================
-# COLOR OUTPUT FUNCTIONS
-# ============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+usage() {
+	cat <<'USAGE'
+setup-user.sh - OpenBSD KDE Desktop Suite (user configuration)
 
-print_header() {
-	printf "\n%s%s%s\n" "$CYAN" "========================================" "$NC"
-	printf "%s%s%s\n" "$CYAN" "  $1" "$NC"
-	printf "%s%s%s\n" "$CYAN" "========================================" "$NC"
+Usage: ksh setup-user.sh [options]
+
+Options:
+      --hidpi DPI    also write "Xft.dpi: DPI" to ~/.Xresources (e.g. 144)
+  -n, --dry-run      print every action, change nothing
+  -y, --yes          assume "yes" for every prompt
+  -v, --verbose      show extra detail
+      --log FILE     also log to FILE
+  -h, --help         this help
+
+Files created (originals preserved as <file>.orig.<timestamp>):
+  ~/.xsession            KDE Plasma session used by xenodm
+  ~/.xinitrc             loader for "startx" (sources ~/.xsession)
+  ~/.profile             adds ENV=$HOME/.kshrc and ~/.local/bin to PATH
+  ~/.kshrc               aliases and two helper functions
+  ~/.config/kdeglobals   Breeze Dark defaults
+  ~/.local/bin/          system-info, lock-screen, kde-restart, update-system
+USAGE
 }
 
-print_step() {
-	printf "\n%s%s%s\n" "$BLUE" "==> $1" "$NC"
+parse_args() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--hidpi)
+			[ $# -ge 2 ] || die "$1 needs an argument"
+			HIDPI_DPI=$2
+			case "$HIDPI_DPI" in
+			'' | *[!0-9]*) die "--hidpi needs a number (e.g. 144)" ;;
+			esac
+			shift 2
+			;;
+		-n | --dry-run)
+			DRY_RUN=1
+			shift
+			;;
+		-y | --yes)
+			ASSUME_YES=1
+			shift
+			;;
+		-v | --verbose)
+			VERBOSE=1
+			shift
+			;;
+		--log)
+			[ $# -ge 2 ] || die "$1 needs an argument"
+			LOG_FILE=$2
+			shift 2
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*)
+			die "unknown option: $1 (try --help)"
+			;;
+		esac
+	done
 }
 
-print_success() {
-	printf "%s✓ %s%s\n" "$GREEN" "$1" "$NC"
-}
+# ---------------------------------------------------------------------------
+preflight() {
+	step "Pre-flight checks"
 
-print_warning() {
-	printf "%s⚠ %s%s\n" "$YELLOW" "$1" "$NC"
-}
+	[ "$(id -u)" -ne 0 ] || die "do not run this as root: ksh $SCRIPT_NAME"
+	check_ok "running as $(id -un)"
 
-print_error() {
-	printf "%s✗ ERROR: %s%s\n" "$RED" "$1" "$NC"
-}
-
-print_info() {
-	printf "%sℹ %s%s\n" "$MAGENTA" "$1" "$NC"
-}
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-check_not_root() {
-	if [ "$(id -u)" = "0" ]; then
-		print_error "Do NOT run this script as root"
-		print_info "Usage: ksh $SCRIPT_NAME"
-		exit 1
-	fi
-	print_success "Running as user: $(whoami)"
-}
-
-create_directory() {
-	local dir="$1"
-	if [ ! -d "$dir" ]; then
-		mkdir -p "$dir"
-		print_success "Created: $dir"
+	if [ "$(uname -s)" != "OpenBSD" ]; then
+		check_warn "this is $(uname -s), not OpenBSD: files will be created anyway"
 	else
-		print_info "Exists: $dir"
+		check_ok "operating system: OpenBSD $(uname -r)"
 	fi
+
+	[ -n "${HOME:-}" ] && [ -d "$HOME" ] || die "HOME is not set or not a directory"
+	[ -w "$HOME" ] || die "HOME ($HOME) is not writable"
+	check_ok "home: $HOME"
+
+	if [ ! -x /usr/local/bin/startplasma-x11 ]; then
+		check_warn "startplasma-x11 not found: run 'doas ksh setup-root.sh' first"
+	fi
+	return 0
 }
 
-backup_file() {
-	local file="$1"
-	if [ -f "$file" ]; then
-		cp "$file" "${file}.bak"
-		print_success "Backed up: $file"
-	fi
-}
-
-# ============================================================================
-# USER CONFIGURATION FUNCTIONS
-# ============================================================================
+# ---------------------------------------------------------------------------
 setup_directories() {
-	print_step "Creating user directories"
-	
-	create_directory "$HOME/.config"
-	create_directory "$HOME/.local"
-	create_directory "$HOME/.local/bin"
-	create_directory "$HOME/.cache"
-	create_directory "$HOME/.local/share"
-	create_directory "$HOME/.config/autostart"
-	
-	print_success "User directories ready"
+	step "Creating user directories"
+	for _d in "$HOME/.config" "$HOME/.config/autostart" "$HOME/.local" \
+		"$HOME/.local/bin" "$HOME/.local/share" "$HOME/.cache"; do
+		if [ -d "$_d" ]; then
+			dbg "exists: $_d"
+		else
+			run_must mkdir -p "$_d"
+			[ "$DRY_RUN" = 0 ] && ok "created: $_d"
+		fi
+	done
+	return 0
 }
 
-setup_xsession() {
-	print_step "Configuring .xsession (xenodm login)"
-	
-	backup_file "$HOME/.xsession"
-	
-	cat > "$HOME/.xsession" << 'XSESSION'
+# ---------------------------------------------------------------------------
+# Session files
+# ---------------------------------------------------------------------------
+setup_session() {
+	step "Configuring the KDE Plasma session"
+
+	write_file "$HOME/.xsession" <<'XSESSION'
 #!/bin/ksh
-# OpenBSD KDE Plasma Session
-# Used by xenodm display manager
+# KDE Plasma session for OpenBSD - used by xenodm and by "startx".
+# Generated by openbsd-kde-suite setup-user.sh
 
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+export XDG_CURRENT_DESKTOP=KDE
+export XDG_SESSION_TYPE=x11
+export QT_QPA_PLATFORM=xcb
 
-# Start D-Bus if not running
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+# Session bus. The dbus package provides dbus-launch; startplasma-x11 would
+# start one itself, but an explicit bus keeps helper processes attached.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-launch >/dev/null 2>&1; then
 	eval "$(dbus-launch --sh-syntax)"
 fi
 
-# Start KDE Plasma
-exec startkde
-XSESSION
-	
-	chmod 700 "$HOME/.xsession"
-	print_success ".xsession configured for KDE Plasma"
-}
-
-setup_xinitrc() {
-	print_step "Configuring .xinitrc (startx fallback)"
-	
-	backup_file "$HOME/.xinitrc"
-	
-	cat > "$HOME/.xinitrc" << 'XINITRC'
-#!/bin/ksh
-# OpenBSD KDE Plasma X Session
-# Used by startx command
-
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-
-# Start D-Bus
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
-	eval "$(dbus-launch --sh-syntax)"
+# VMware guests: vmwh (packages) provides host mouse integration.
+if [ -x /usr/local/bin/vmwh ]; then
+	/usr/local/bin/vmwh &
 fi
 
-# Start KDE Plasma or fallback to xterm
-if command -v startkde >/dev/null 2>&1; then
-	exec startkde
-else
-	print_error "KDE Plasma not found"
-	print_info "Installing: pkg_add kde-plasma"
-	exec xterm
-fi
-XINITRC
-	
-	chmod 700 "$HOME/.xinitrc"
-	print_success ".xinitrc configured"
-}
-
-setup_profile() {
-	print_step "Configuring .profile"
-	
-	backup_file "$HOME/.profile"
-	
-	# Add configuration if not present
-	if ! grep -q "OpenBSD KDE" "$HOME/.profile" 2>/dev/null; then
-		cat >> "$HOME/.profile" << 'PROFILE'
-
-# OpenBSD KDE Desktop Suite configuration
-# Added by setup-user.sh
-
-# Add local bin to PATH
-export PATH="$HOME/.local/bin:$PATH"
-
-# Default editor
-export EDITOR="vim"
-export VISUAL="vim"
-
-# Pager
-export PAGER="less"
-export LESS="-R"
-
-# Locale
-export LANG="en_US.UTF-8"
-export LC_ALL="en_US.UTF-8"
-
-# KDE integration
-export KDE_HOME="$HOME/.kde"
-PROFILE
-		print_success ".profile configured"
-	else
-		print_info ".profile already configured"
+if [ -x /usr/local/bin/startplasma-x11 ]; then
+	if command -v ck-launch-session >/dev/null 2>&1; then
+		exec ck-launch-session /usr/local/bin/startplasma-x11
 	fi
+	exec /usr/local/bin/startplasma-x11
+fi
+
+# Plasma 5 fallback, then a plain terminal so the user sees why.
+if [ -x /usr/local/bin/startkde ]; then
+	exec /usr/local/bin/startkde
+fi
+
+echo "KDE Plasma is not installed: doas pkg_add kde-plasma" >&2
+exec xterm
+XSESSION
+	[ "$DRY_RUN" = 0 ] && chmod 700 "$HOME/.xsession"
+	ok "~/.xsession written (startplasma-x11)"
+
+	write_file "$HOME/.xinitrc" <<'XINITRC'
+#!/bin/ksh
+# "startx" entry point: one session definition, in ~/.xsession.
+if [ -r "$HOME/.xsession" ]; then
+	. "$HOME/.xsession"
+fi
+echo "~/.xsession is missing: run 'ksh setup-user.sh'" >&2
+exec xterm
+XINITRC
+	[ "$DRY_RUN" = 0 ] && chmod 700 "$HOME/.xinitrc"
+	ok "~/.xinitrc written"
+
+	if [ -n "$HIDPI_DPI" ]; then
+		write_file "$HOME/.Xresources" <<XRES
+! Written by setup-user.sh --hidpi $HIDPI_DPI
+Xft.dpi: $HIDPI_DPI
+Xft.autohint: 0
+Xft.lcdfilter: lcddefault
+Xft.hintstyle: hintslight
+Xft.hinting: 1
+Xft.antialias: 1
+Xft.rgba: rgb
+XRES
+		ok "~/.Xresources written (Xft.dpi: $HIDPI_DPI)"
+	fi
+	return 0
+}
+
+# ---------------------------------------------------------------------------
+# Shell environment
+# ---------------------------------------------------------------------------
+setup_profile() {
+	step "Configuring ~/.profile"
+
+	backup_file "$HOME/.profile"
+	if [ ! -f "$HOME/.profile" ] && [ "$DRY_RUN" = 0 ]; then
+		: >"$HOME/.profile"
+	fi
+
+	if append_block "$HOME/.profile" "$MARKER" "$MARKER (profile)
+# ENV is what makes ksh read ~/.kshrc for interactive shells.
+export ENV=\$HOME/.kshrc
+case \":\$PATH:\" in
+*:\"\$HOME/.local/bin\":*) ;;
+*) PATH=\"\$HOME/.local/bin:\$PATH\"; export PATH ;;
+esac
+export EDITOR=\${EDITOR:-vi}
+export VISUAL=\${VISUAL:-\$EDITOR}
+export PAGER=\${PAGER:-less}
+export LESS='-R'
+export LANG=\${LANG:-en_US.UTF-8}
+# <<< openbsd-kde-suite"; then
+		ok "~/.profile updated (ENV, PATH, editor)"
+	else
+		info "~/.profile already configured"
+	fi
+	return 0
 }
 
 setup_kshrc() {
-	print_step "Configuring .kshrc"
-	
+	step "Configuring ~/.kshrc"
+
 	backup_file "$HOME/.kshrc"
-	
-	# Add configuration if not present
-	if ! grep -q "OpenBSD KDE" "$HOME/.kshrc" 2>/dev/null; then
-		cat >> "$HOME/.kshrc" << 'KSHRC'
+	if [ ! -f "$HOME/.kshrc" ] && [ "$DRY_RUN" = 0 ]; then
+		: >"$HOME/.kshrc"
+	fi
 
-# OpenBSD KDE Desktop Suite - Shell aliases
-# Added by setup-user.sh
+	if append_block "$HOME/.kshrc" "$MARKER" "$MARKER (kshrc)
+# Global defaults first, then the suite aliases.
+[ -f /etc/ksh.kshrc ] && . /etc/ksh.kshrc
 
-# List commands
-alias ll='ls -lah'
-alias la='ls -la'
 alias l='ls -CF'
+alias la='ls -la'
+alias ll='ls -lah'
 alias lt='ls -lht'
-alias ltr='ls -lhtr'
 
-# Color grep
-alias grep='grep --color=auto'
-alias egrep='egrep --color=auto'
-alias fgrep='fgrep --color=auto'
-
-# Safe operations
-alias rm='rm -i'
-alias mv='mv -i'
-alias cp='cp -i'
-
-# System info
-alias myip='curl -s ifconfig.me'
-alias weather='curl -s wttr.in'
-
-# KDE helpers
-alias kde-restart='pkill ksmserver'
-alias kde-version='pkg_info kde-plasma'
-
-# Useful functions
 mkcd() {
-	mkdir -p "$1" && cd "$1"
+	mkdir -p \"\$1\" && cd \"\$1\"
 }
 
 extract() {
-	if [ -f "$1" ]; then
-		case "$1" in
-			*.tar.bz2) tar xjf "$1" ;;
-			*.tar.gz) tar xzf "$1" ;;
-			*.bz2) bunzip2 "$1" ;;
-			*.rar) unrar e "$1" ;;
-			*.gz) gunzip "$1" ;;
-			*.tar) tar xf "$1" ;;
-			*.tbz2) tar xjf "$1" ;;
-			*.tgz) tar xzf "$1" ;;
-			*.zip) unzip "$1" ;;
-			*.Z) uncompress "$1" ;;
-			*.7z) 7z x "$1" ;;
-			*) echo "Don't know how to extract '$1'" ;;
-		esac
-	else
-		echo "'$1' is not a valid file"
-	fi
+	case \"\$1\" in
+	*.tar.bz2 | *.tbz2) tar xjf \"\$1\" ;;
+	*.tar.gz | *.tgz) tar xzf \"\$1\" ;;
+	*.tar.xz) tar xJf \"\$1\" ;;
+	*.tar) tar xf \"\$1\" ;;
+	*.zip) unzip \"\$1\" ;;
+	*.gz) gunzip \"\$1\" ;;
+	*.bz2) bunzip2 \"\$1\" ;;
+	*) echo \"extract: unsupported archive: \${1:-<none>}\" >&2 ;;
+	esac
 }
-KSHRC
-		print_success ".kshrc configured"
+# <<< openbsd-kde-suite"; then
+		ok "~/.kshrc updated"
 	else
-		print_info ".kshrc already configured"
+		info "~/.kshrc already configured"
 	fi
+	return 0
 }
 
+# ---------------------------------------------------------------------------
 setup_kde_config() {
-	print_step "Configuring KDE settings"
-	
-	create_directory "$HOME/.config"
-	
-	# Global KDE settings (dark theme by default)
-	if [ ! -f "$HOME/.config/kdeglobals" ]; then
-		cat > "$HOME/.config/kdeglobals" << 'KDEGLOBAL'
+	step "Configuring KDE defaults"
+
+	backup_file "$HOME/.config/kdeglobals"
+	if [ -f "$HOME/.config/kdeglobals" ]; then
+		info "~/.config/kdeglobals exists, keeping it"
+	else
+		write_file "$HOME/.config/kdeglobals" <<'KDEGLOBALS'
 [General]
 ColorScheme=BreezeDark
-Name=KDE Dark
+Name=Breeze Dark
 shadeSortColumn=true
 terminalApplication=konsole
 widgetStyle=Breeze
 
 [KDE]
-widgetStyle=Breeze
-colorScheme=BreezeDark
-
-[WM]
-activeBlend=59,151,252
-activeBackground=35,38,41
-activeForeground=239,240,241
-inactiveBlend=100,100,100
-inactiveBackground=54,54,54
-inactiveForeground=180,180,180
-KDEGLOBAL
-		print_success "KDE dark theme configured"
-	else
-		print_info "KDE config already exists"
+LookAndFeelPackage=org.kde.breezedark.desktop
+SingleClick=false
+KDEGLOBALS
+		ok "~/.config/kdeglobals written (Breeze Dark)"
 	fi
-	
-	# Dolphin file manager settings
-	create_directory "$HOME/.config/dolphinrc"
-	
-	print_success "KDE configuration ready"
+	return 0
 }
 
+# ---------------------------------------------------------------------------
 create_utility_scripts() {
-	print_step "Creating utility scripts"
-	
-	# System info script
-	cat > "$HOME/.local/bin/system-info" << 'SYSINFO'
-#!/bin/ksh
-# OpenBSD System Information
+	step "Creating utility scripts"
 
-echo "OpenBSD System Information"
+	write_file "$HOME/.local/bin/system-info" <<'SYSINFO'
+#!/bin/ksh
+# OpenBSD system summary - generated by openbsd-kde-suite
+echo "OpenBSD system information"
 echo "=========================="
-echo ""
-echo "Hostname:    $(hostname)"
-echo "User:        $(whoami)"
-echo "OpenBSD:     $(uname -r)"
-echo "Arch:        $(uname -m)"
-echo "CPU:         $(sysctl -n hw.model 2>/dev/null || echo 'Unknown')"
-echo "Memory:      $(sysctl -n hw.physmem 2>/dev/null | awk '{printf "%.0f MB", $1/1024/1024}' || echo 'Unknown')"
-echo ""
-echo "Desktop:     KDE Plasma"
-echo "KDE Version: $(pkg_info kde-plasma 2>/dev/null | head -1 | awk '{print $2}' || echo 'Unknown')"
-echo ""
-echo "Uptime:      $(uptime | sed 's/.*up //' | sed 's/,.*$//')"
-echo ""
+echo "host     : $(hostname)"
+echo "user     : $(id -un)"
+echo "release  : $(uname -r) $(uname -m)"
+echo "cpu      : $(sysctl -n hw.model 2>/dev/null || echo unknown)"
+echo "memory   : $(sysctl -n hw.physmem 2>/dev/null | awk '{printf "%.0f MB", $1 / 1048576}')"
+echo "disk /usr: $(df -h /usr 2>/dev/null | tail -1 | awk '{print $4" free of "$2}')"
+kde=$(pkg_info -e 'kde-plasma-*' 2>/dev/null | head -1 | awk '{print $1}')
+[ -n "$kde" ] || kde="not installed"
+echo "desktop  : KDE Plasma ($kde)"
+echo "uptime   : $(uptime | sed 's/^ *//')"
 SYSINFO
-	chmod 755 "$HOME/.local/bin/system-info"
-	print_success "Created: system-info"
-	
-	# Lock screen script
-	cat > "$HOME/.local/bin/lock-screen" << 'LOCKSCREEN'
-#!/bin/sh
-# Screen locker for KDE
 
-if command -v kscreenlocker >/dev/null 2>&1; then
-	kscreenlocker
-elif command -v slock >/dev/null 2>&1; then
-	slock
-else
-	xlock -mode blank
-fi
-LOCKSCREEN
-	chmod 755 "$HOME/.local/bin/lock-screen"
-	print_success "Created: lock-screen"
-	
-	# KDE restart script
-	cat > "$HOME/.local/bin/kde-restart" << 'KDERESTART'
-#!/bin/sh
-# Restart KDE Plasma (use with caution)
-
-echo "Restarting KDE Plasma..."
-echo "All KDE applications will close."
-echo ""
-read -p "Continue? (y/N) " confirm
-case "$confirm" in
-	[yY][eE][sS]|[yY])
-		pkill ksmserver
-		;;
-	*)
-		echo "Cancelled"
-		;;
-esac
-KDERESTART
-	chmod 755 "$HOME/.local/bin/kde-restart"
-	print_success "Created: kde-restart"
-	
-	# Package update script
-	cat > "$HOME/.local/bin/update-system" << 'UPDATE'
+	write_file "$HOME/.local/bin/lock-screen" <<'LOCK'
 #!/bin/ksh
-# System update helper
+# Lock the Plasma session. kscreenlocker has no CLI, so ask D-Bus.
+lock_via_dbus() {
+	command -v dbus-send >/dev/null 2>&1 || return 1
+	dbus-send --session --type=method_call --dest="$1" \
+		/ScreenSaver org.freedesktop.ScreenSaver.Lock 2>/dev/null && return 0
+	return 1
+}
 
-echo "Updating OpenBSD packages..."
-echo ""
-doas pkg_add -u
-echo ""
-echo "Update complete!"
+if lock_via_dbus org.kde.screensaver || lock_via_dbus org.freedesktop.ScreenSaver; then
+	exit 0
+fi
+if command -v xlock >/dev/null 2>&1; then
+	exec xlock -mode blank
+fi
+echo "lock-screen: no screen locker available" >&2
+exit 1
+LOCK
+
+	write_file "$HOME/.local/bin/kde-restart" <<'RESTART'
+#!/bin/ksh
+# Restart plasmashell only. The session, windows and apps stay up.
+printf 'Restart plasmashell? (y/N) '
+read -r answer
+case "$answer" in
+[yY] | [yY][eE][sS]) ;;
+*) echo "cancelled"; exit 0 ;;
+esac
+if command -v kquitapp6 >/dev/null 2>&1; then
+	kquitapp6 plasmashell 2>/dev/null
+else
+	pkill -x plasmashell
+fi
+sleep 1
+nohup plasmashell >/dev/null 2>&1 &
+echo "plasmashell restarted"
+RESTART
+
+	write_file "$HOME/.local/bin/update-system" <<'UPDATE'
+#!/bin/ksh
+# Update packages, then report whether the kernel needs patching.
+set -eu
+doas pkg_add -Iu
+echo
+if command -v syspatch >/dev/null 2>&1; then
+	# -c lists patches that are AVAILABLE; -l lists the ones already installed.
+	pending=$(syspatch -c 2>/dev/null || true)
+	if [ -n "$pending" ]; then
+		printf '%s\n' "$pending" | sed 's/^/patch available: /'
+		echo "apply with: doas syspatch   (then reboot)"
+	else
+		echo "no syspatch pending"
+	fi
+fi
 UPDATE
-	chmod 755 "$HOME/.local/bin/update-system"
-	print_success "Created: update-system"
-}
 
-setup_input_devices() {
-	print_step "Configuring input devices"
-	
-	# Touchpad tapping
-	if [ ! -f "$HOME/.wsconsctl.conf" ]; then
-		cat > "$HOME/.wsconsctl.conf" << 'WSCONS'
-# Touchpad configuration
-mouse.tp.tapping=1
-mouse.mousepad.horizontal_scrolling=1
-WSCONS
-		print_success "Touchpad tapping enabled"
-	else
-		print_info ".wsconsctl.conf already exists"
+	if [ "$DRY_RUN" = 0 ]; then
+		for _s in system-info lock-screen kde-restart update-system; do
+			chmod 755 "$HOME/.local/bin/$_s"
+		done
 	fi
+	ok "~/.local/bin: system-info, lock-screen, kde-restart, update-system"
+	return 0
 }
 
-setup_autostart() {
-	print_step "Configuring autostart"
-	
-	create_directory "$HOME/.config/autostart"
-	
-	print_success "Autostart directory ready"
-	print_info "Place .desktop files in ~/.config/autostart/"
-}
-
-# ============================================================================
-# VERIFICATION
-# ============================================================================
+# ---------------------------------------------------------------------------
 verify_configuration() {
-	print_header "Verifying Configuration"
-	
-	local pass=0
-	local fail=0
-	
-	# Check .xsession
-	if [ -f "$HOME/.xsession" ]; then
-		print_success ".xsession exists"
-		pass=$((pass + 1))
+	step "Verifying user configuration"
+
+	if [ -x "$HOME/.xsession" ] && grep -q 'startplasma-x11' "$HOME/.xsession"; then
+		check_ok "~/.xsession executable and points at startplasma-x11"
 	else
-		print_error ".xsession missing"
-		fail=$((fail + 1))
+		check_fail "~/.xsession missing, not executable, or not pointing at startplasma-x11"
 	fi
-	
-	# Check .xinitrc
+
 	if [ -f "$HOME/.xinitrc" ]; then
-		print_success ".xinitrc exists"
-		pass=$((pass + 1))
+		check_ok "~/.xinitrc present"
 	else
-		print_error ".xinitrc missing"
-		fail=$((fail + 1))
+		check_fail "~/.xinitrc missing"
 	fi
-	
-	# Check .profile
-	if [ -f "$HOME/.profile" ]; then
-		print_success ".profile exists"
-		pass=$((pass + 1))
+
+	if grep -q '^export ENV=.*\.kshrc' "$HOME/.profile" 2>/dev/null; then
+		check_ok "~/.profile exports ENV (so ~/.kshrc is actually read)"
 	else
-		print_error ".profile missing"
-		fail=$((fail + 1))
+		check_fail "~/.profile does not export ENV: aliases would never load"
 	fi
-	
-	# Check .kshrc
-	if [ -f "$HOME/.kshrc" ]; then
-		print_success ".kshrc exists"
-		pass=$((pass + 1))
+
+	if grep -qF "$MARKER" "$HOME/.kshrc" 2>/dev/null; then
+		check_ok "~/.kshrc contains the suite block"
 	else
-		print_error ".kshrc missing"
-		fail=$((fail + 1))
+		check_fail "~/.kshrc block missing"
 	fi
-	
-	# Check KDE config
-	if [ -d "$HOME/.config" ]; then
-		print_success "Config directory exists"
-		pass=$((pass + 1))
+
+	_missing=0
+	for _s in system-info lock-screen kde-restart update-system; do
+		if [ -x "$HOME/.local/bin/$_s" ]; then
+			dbg "executable: $_s"
+		else
+			check_fail "~/.local/bin/$_s missing or not executable"
+			_missing=$((_missing + 1))
+		fi
+	done
+	[ "$_missing" -eq 0 ] && check_ok "utility scripts executable"
+
+	if [ -f "$HOME/.config/kdeglobals" ]; then
+		check_ok "~/.config/kdeglobals present"
 	else
-		print_error "Config directory missing"
-		fail=$((fail + 1))
+		check_warn "~/.config/kdeglobals missing (Plasma creates it on first login)"
 	fi
-	
-	# Check utility scripts
-	if [ -x "$HOME/.local/bin/system-info" ]; then
-		print_success "Utility scripts created"
-		pass=$((pass + 1))
-	else
-		print_error "Utility scripts missing"
-		fail=$((fail + 1))
-	fi
-	
-	# Summary
-	printf "\n"
-	print_header "Verification Summary"
-	printf "%sPassed: %d%s\n" "$GREEN" "$pass" "$NC"
-	printf "%sFailed: %d%s\n" "$RED" "$fail" "$NC"
-	
-	if [ "$fail" -gt 0 ]; then
-		print_warning "Some checks failed"
-		return 1
-	else
-		print_success "All checks passed"
-		return 0
-	fi
+	return 0
 }
 
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
+# ---------------------------------------------------------------------------
 main() {
-	print_header "OpenBSD KDE Desktop Suite v$VERSION"
-	print_info "User Configuration Script"
-	print_info "Running as: $(whoami)"
-	print_info "Home: $HOME"
-	
-	# Pre-flight check
-	check_not_root
-	
-	# Setup user environment
+	parse_args "$@"
+
+	hdr "OpenBSD KDE Desktop Suite v$SUITE_VERSION - user setup"
+	info "user: $(id -un)   home: $HOME"
+	[ "$DRY_RUN" = 1 ] && warn "DRY RUN: nothing will be modified"
+
+	preflight
 	setup_directories
-	setup_xsession
-	setup_xinitrc
+	setup_session
 	setup_profile
 	setup_kshrc
 	setup_kde_config
 	create_utility_scripts
-	setup_input_devices
-	setup_autostart
-	
-	# Verify configuration
-	if verify_configuration; then
-		print_header "User Configuration Complete"
-		print_success "KDE Plasma is ready for your user"
-		printf "\n"
-		print_info "Next steps:"
-		print_info "  1. Reboot: doas reboot"
-		print_info "  2. Login via xenodm"
-		print_info "  3. Select 'KDE Plasma' session"
-		print_info "  4. Enjoy your modern OpenBSD desktop!"
-		printf "\n"
-		print_info "Utility scripts available:"
-		print_info "  system-info   - Show system information"
-		print_info "  lock-screen   - Lock your screen"
-		print_info "  kde-restart   - Restart KDE Plasma"
-		print_info "  update-system - Update all packages"
-		printf "\n"
-		print_success "Configuration successful!"
+
+	if [ "$DRY_RUN" = 1 ]; then
+		info "dry run: verification skipped (nothing was written)"
 		exit 0
-	else
-		print_header "Configuration Completed with Warnings"
-		print_warning "Some checks failed - review output"
-		exit 1
 	fi
+	verify_configuration
+
+	if summary "user setup"; then
+		hdr "User configuration complete"
+		info "log out and start the session (xenodm: reboot, or run: startx)"
+		info "xenodm has no session menu: ~/.xsession is the session"
+		exit 0
+	fi
+
+	hdr "User configuration finished with failures"
+	exit 1
 }
 
-# Run main function
 main "$@"

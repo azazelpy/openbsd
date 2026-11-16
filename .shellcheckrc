@@ -1,0 +1,12 @@
+# shellcheck configuration
+# ---------------------------------------------------------------------------
+# shell=ksh is passed on the command line by tests/lint.sh, so it is not set
+# here (the CLI wins anyway).
+#
+# SC2034 - "appears unused": DRY_RUN / ASSUME_YES / VERBOSE / LOG_FILE are set
+#          by each script's option parser and read by lib/common.sh. shellcheck
+#          analyses one file at a time and cannot see that.
+# SC2088 - "tilde does not expand in quotes": only appears inside human
+#          readable messages such as "~/.profile written", never in a path.
+# ---------------------------------------------------------------------------
+disable=SC2034,SC2088
