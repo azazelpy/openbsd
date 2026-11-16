@@ -1,6 +1,6 @@
 # INSTALL.md — step by step
 
-Target: OpenBSD 7.8, KDE Plasma 6.4, xenodm as display manager.
+Target: OpenBSD 8.0 (also 7.9 / 7.8), KDE Plasma 6.7, xenodm as display manager.
 Time: 10–20 minutes, most of it `pkg_add` downloading ~1.5 GB.
 
 ---
@@ -9,9 +9,9 @@ Time: 10–20 minutes, most of it `pkg_add` downloading ~1.5 GB.
 
 | Requirement | How to check | If missing |
 |---|---|---|
-| OpenBSD 7.8 | `uname -r` | other releases work but are untested |
-| X11 sets | `ls /usr/X11R6/bin/X` | re-run the installer and select `xbase78 xshare78 xfont78 xserv78` |
-| Package mirror | `cat /etc/installurl` | `setup-root.sh` writes the default |
+| OpenBSD 8.0 / 7.9 / 7.8 | `uname -r` | other releases warn but continue |
+| X11 sets | `ls /usr/X11R6/bin/X` | re-run the installer and select them: `xbase80 xshare80 xfont80 xserv80` on 8.0, `xbase78 …` on 7.8 |
+| Package mirror | `cat /etc/installurl` | `setup-root.sh` writes the default (release-agnostic, so an 8.0 box is not served 7.8 packages) |
 | Network | `ftp -o /dev/null https://cdn.openbsd.org/` | fix DNS/route first |
 | `wheel` membership | `id -Gn` | `doas usermod -G wheel "$USER"`, then log out and in |
 | Free space on `/usr` | `df -h /usr` | 2 GB minimum |

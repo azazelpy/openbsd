@@ -3,20 +3,22 @@
 # OpenBSD KDE Desktop Suite - System configuration (run as root)
 # ============================================================================
 # Script:  setup-root.sh
-# Version: 2.1.0
-# Purpose: install KDE Plasma 6 and enable the daemons it needs on OpenBSD 7.8
+# Version: 2.1.1
+# Purpose: install KDE Plasma 6 and enable the daemons it needs on OpenBSD 8.0
+#          (verified on 8.0 and 7.8; see COMPATIBILITY.md)
 # Usage:   doas ksh setup-root.sh [options]
 # License: MIT License - https://github.com/azazelpy/openbsd
 # ============================================================================
 #
-# Notes on purpose (verified against the OpenBSD 7.8 package index):
+# Notes on purpose (verified against the OpenBSD 8.0 and 7.8 package indexes):
 #   * kde-plasma is a meta package that pulls plasma-desktop, plasma-workspace,
 #     kwin, kscreenlocker, kf6-dolphin and konsole.
 #   * D-Bus ships as the "dbus" package; its rc.d daemon is "messagebus".
 #   * polkit and consolekit2 have NO rc.d script: D-Bus starts them on demand.
 #     There is nothing to "enable" for them.
 #   * tmux is in the base system, not a package.
-#   * vim has flavours, so the install spec is vim--no_x11.
+#   * vim: 7.8 ships a -no_x11 flavour; 8.0 dropped that flavour and made the
+#     default build console-only (only -gtk3 enables the GUI). Handled by OSVER.
 # ============================================================================
 
 set -eu
@@ -131,14 +133,16 @@ preflight() {
 	require_openbsd
 	check_ok "operating system: $(uname -s) $(uname -r)"
 
-	_osver=$(uname -r)
-	case "$_osver" in
-	7.8 | 7.9 | 8.*) check_ok "release $_osver is supported" ;;
-	*) check_warn "release $_osver is untested (suite targets 7.8+)" ;;
+	OSVER=$(uname -r)
+	case "$OSVER" in
+	7.8 | 7.9 | 8.*) check_ok "release $OSVER is supported" ;;
+	*) check_warn "release $OSVER is untested (suite targets 7.8 and 8.0)" ;;
 	esac
 
 	if [ ! -d /usr/X11R6 ]; then
-		die "X11 file sets are missing: install xbase78/xshare78/xfont78/xserv78"
+		# X sets are numbered by release: xbase80 for 8.0, xbase78 for 7.8.
+		_sets=$(printf '%s' "$OSVER" | tr -d '.')
+		die "X11 file sets are missing: install xbase$_sets/xshare$_sets/xfont$_sets/xserv$_sets"
 	fi
 	check_ok "X11 file sets present"
 
@@ -284,7 +288,16 @@ install_packages() {
 	if [ "$WANT_TOOLS" = 1 ]; then
 		step "Installing optional CLI tools (tmux is already in base)"
 		install_one git 'git-*' || PKG_FAIL=$((PKG_FAIL + 1))
-		install_one vim--no_x11 'vim-*-no_x11' || PKG_FAIL=$((PKG_FAIL + 1))
+		case "${OSVER:-}" in
+		8.* | 9.* | [1-9][0-9].*)
+			# 8.0 dropped the -no_x11 flavour and made the default vim build
+			# console-only; -gtk3 is the only GUI flavour left.
+			install_one vim 'vim-[0-9]*' || PKG_FAIL=$((PKG_FAIL + 1))
+			;;
+		*)
+			install_one vim--no_x11 'vim-*-no_x11' || PKG_FAIL=$((PKG_FAIL + 1))
+			;;
+		esac
 		install_one nano 'nano-*' || PKG_FAIL=$((PKG_FAIL + 1))
 		install_one htop 'htop-*' || PKG_FAIL=$((PKG_FAIL + 1))
 		install_one curl 'curl-*' || PKG_FAIL=$((PKG_FAIL + 1))

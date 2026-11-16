@@ -9,7 +9,7 @@
 # License: MIT License - https://github.com/azazelpy/openbsd
 # ============================================================================
 #
-# Verified against OpenBSD 7.8: plasma-workspace installs
+# Verified against OpenBSD 7.8 and 8.0: plasma-workspace installs
 # /usr/local/bin/startplasma-x11; there is no startkde in Plasma 6.
 # ksh reads ~/.kshrc only when $ENV points at it, so .profile exports ENV.
 # ============================================================================

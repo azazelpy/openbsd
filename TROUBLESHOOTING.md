@@ -78,7 +78,8 @@ doas pkg_add vim--gtk3       # optional GUI
 
 ### `pkg_add: no such package: vmware-tools`
 
-There is no VMware Tools package on OpenBSD 7.8. `vmt(4)` is in the kernel, and
+There is no VMware Tools package in the OpenBSD 8.0 or 7.8 index. `vmt(4)` is in
+the kernel, and
 host mouse integration comes from `vmwh`:
 
 ```sh
@@ -90,7 +91,7 @@ grep -c vmwh ~/.xsession      # the session must launch it
 
 ```sh
 doas pkg_check            # repairs the package database
-cat /etc/installurl       # must match your release (7.8, not -current)
+cat /etc/installurl       # must match your release (8.0, 7.9, 7.8 — never -current)
 ```
 
 ---
@@ -137,11 +138,14 @@ If the count is 0, re-run `ksh setup-user.sh`.
 OpenBSD audio is sndio (`sndiod`, `mixerctl`, `sndioctl`). Plasma's volume applet
 uses PulseAudio, which on OpenBSD plays through sndio.
 
+`plasma-pa` and `pulseaudio` already arrive with `kde-plasma` (verified deps:
+`plasma-pa-6.7.5` → `pulseaudio-17.0p4`), so there is nothing to install. What
+can be missing is the per-session daemon:
+
 ```sh
-doas pkg_add pulseaudio plasma-pa
-# start a session daemon once, then use the applet
+pkg_info -e 'pulseaudio-*'      # must print a version
 pulseaudio --start --exit-idle-time=-1
-mixerctl outputs.master        # the hardware side
+mixerctl outputs.master         # the hardware side
 ```
 
 Two corrections to the 2.0.0 instructions:

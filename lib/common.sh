@@ -15,7 +15,7 @@
 [ -n "${SUITE_COMMON_LOADED:-}" ] && return 0
 SUITE_COMMON_LOADED=1
 
-SUITE_VERSION="2.1.0"
+SUITE_VERSION="2.1.1"
 
 # ---------------------------------------------------------------------------
 # Runtime flags (env defaults, overridden by CLI parsing in each script)

@@ -132,5 +132,31 @@ for target in $(sed -n 's/.*](\([A-Za-z0-9._/-]*\.md\)).*/\1/p' README.md | sort
 	fi
 done
 
+printf '\n== release coherence\n'
+ver=$(sed -n 's/^SUITE_VERSION="\(.*\)"$/\1/p' lib/common.sh)
+top=$(sed -n 's/^## \[\([0-9][0-9.]*\)\].*/\1/p' CHANGELOG.md | head -1)
+if [ -n "$ver" ] && [ "$ver" = "$top" ]; then
+	ok "SUITE_VERSION $ver matches the newest CHANGELOG entry"
+else
+	bad "SUITE_VERSION ($ver) does not match the newest CHANGELOG entry ($top)"
+fi
+
+# X sets are numbered per release (xbase80 on 8.0, xbase78 on 7.8): the code
+# must derive the number from uname -r instead of shipping a stale literal.
+hard=0
+for f in $scripts; do
+	if sed 's/^[[:space:]]*#.*$//' "$f" | grep -qE 'x(base|share|font|serv)[0-9][0-9]'; then
+		bad "$f hardcodes an X set name (derive it from uname -r)"
+		hard=$((hard + 1))
+	fi
+done
+[ "$hard" -eq 0 ] && ok "X set names are derived, not hardcoded to a release"
+
+if [ -f COMPATIBILITY.md ]; then
+	ok "COMPATIBILITY.md present"
+else
+	bad "COMPATIBILITY.md missing"
+fi
+
 printf '\n== result: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

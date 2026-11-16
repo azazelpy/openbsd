@@ -3,6 +3,44 @@
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/).
 Versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] — 2026-11-16 — verified against OpenBSD 8.0
+
+OpenBSD 8.0 (October 2026) is now the current target; 7.8 stays supported. Every
+fact below was read from the 8.0 package index (13 063 entries), the `.tgz`
+`+CONTENTS`, or the 8.0 man pages — not assumed.
+
+### Verified unchanged on 8.0
+
+- `kde-plasma-6.7.5p0` still exists and its 47 `@depend` entries still pull
+  `plasma-desktop`, `plasma-workspace`, `kwin` (+`kwin-x11`), `kscreenlocker`,
+  `kf6-dolphin`, `konsole`, `breeze`, `plasma-pa`.
+- `plasma-workspace-6.7.5` still installs `bin/startplasma-x11` and
+  `bin/plasmashell`, so the session definition is unchanged.
+- `dbus-1.16.2p1v0` still ships `@rcscript /etc/rc.d/messagebus`, plus
+  `dbus-send` (used by `lock-screen`) and `dbus-launch`.
+- `polkit-127p0` and `consolekit2-1.2.7p0` still have **no** rc.d script, so the
+  decision not to `rcctl enable` them holds.
+- `vmwh-1.2v0` still exists; `vmware-tools` and `open-vm-tools` still do not.
+- `kf6-kconfig-6.30.0` still provides `kreadconfig6`/`kwriteconfig6`.
+- `syspatch -c` still means "list available", `rcctl get … status` still means
+  "is enabled", and `mouse.tp.tapping` is still documented in `wsmouse(4)`.
+- X sets are still `xbaseNN xshareNN xfontNN xservNN` (`80` for 8.0).
+
+### Changed
+
+- `setup-root.sh`: the X11-set error names the sets for *your* release
+  (`xbase80` on 8.0) instead of a hardcoded `xbase78`, and `OSVER` is captured
+  once in the pre-flight instead of being a local.
+- `setup-root.sh`: `--tools` installs `vim` instead of `vim--no_x11` on 8.x.
+  8.0 dropped the `-no_x11` flavour and made the default build console-only
+  (wantlib: `curses`, `iconv`, `intl`, `m`, `sodium` — no X11). 7.8/7.9 keep
+  `vim--no_x11`.
+- Docs: README badge and quick start target 8.0; `INSTALL.md` lists both set
+  names; `TROUBLESHOOTING.md` no longer says `pkg_add pulseaudio plasma-pa`
+  (both arrive with `kde-plasma` via `plasma-pa`).
+- New `COMPATIBILITY.md`: per-release matrix of everything the scripts depend
+  on, with the command that checks each row.
+
 ## [2.1.0] — 2026-11-16
 
 Audit release. Fixes the findings in [AUDITORIA.md](AUDITORIA.md); 2.0.0 could

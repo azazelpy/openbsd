@@ -1,9 +1,9 @@
 # 🌐 OpenBSD KDE Desktop Suite
 
-> **KDE Plasma 6 on OpenBSD 7.8 — automated, idempotent, reversible**
+> **KDE Plasma 6 on OpenBSD 8.0 — automated, idempotent, reversible**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OpenBSD](https://img.shields.io/badge/OpenBSD-7.8-fuchsia.svg)](https://www.openbsd.org)
+[![OpenBSD](https://img.shields.io/badge/OpenBSD-8.0%20%7C%207.9%20%7C%207.8-fuchsia.svg)](https://www.openbsd.org)
 [![Shell](https://img.shields.io/badge/Shell-ksh-444444.svg)](https://man.openbsd.org/ksh)
 [![CI](https://github.com/azazelpy/openbsd/actions/workflows/ci.yml/badge.svg)](https://github.com/azazelpy/openbsd/actions/workflows/ci.yml)
 
@@ -11,7 +11,7 @@
 
 ## Overview
 
-Five small `ksh` scripts that turn a fresh OpenBSD 7.8 install into a KDE Plasma
+Five small `ksh` scripts that turn a fresh OpenBSD 8.0 install into a KDE Plasma
 desktop, one that verifies the result, and one that undoes it. Every script is
 idempotent, every file it touches is backed up first, and every action can be
 previewed with `--dry-run`.
@@ -32,8 +32,9 @@ timestamped backups, and the OpenBSD primitives (`pkg_info -e`,
 
 ## Quick start
 
-Prerequisites: OpenBSD 7.8 with the X11 sets (`xbase78`, `xshare78`, `xfont78`,
-`xserv78`), network access, and your user in the `wheel` group.
+Prerequisites: OpenBSD 8.0 (or 7.9 / 7.8) with the X11 sets — `xbase80`,
+`xshare80`, `xfont80`, `xserv80` on 8.0, `xbase78` … on 7.8 — network access,
+and your user in the `wheel` group.
 
 ```sh
 git clone https://github.com/azazelpy/openbsd.git
@@ -97,18 +98,20 @@ Every script supports `--dry-run`, `--yes`, `--verbose` and `--help`.
 
 ### Verified package facts
 
-Checked against the OpenBSD 7.8 package index. Each row was wrong or ambiguous
-in 2.0.0 and is the reason the suite exists in this shape:
+Checked against the OpenBSD **8.0** package index (13 063 entries) and 7.8.
+Each row was wrong or ambiguous in 2.0.0 and is the reason the suite exists in
+this shape. The per-release detail is in [`COMPATIBILITY.md`](COMPATIBILITY.md).
 
-| Fact | 2.0.0 | 2.1.0 |
-|------|-------|-------|
-| KDE meta package | `kde-plasma` ✅ (exists; pulls Plasma 6.4.5) | unchanged |
-| D-Bus package | `messagebus` ❌ no such package | `dbus` (rc.d daemon: `messagebus`) |
+| Fact | 2.0.0 | 2.1.1 (8.0) |
+|------|-------|-------------|
+| KDE meta package | `kde-plasma` ✅ (exists; pulls Plasma 6.4.5) | `kde-plasma-6.7.5p0` → Plasma 6.7.5 |
+| D-Bus package | `messagebus` ❌ no such package | `dbus-1.16.2p1v0` (rc.d daemon: `messagebus`) |
 | `tmux` | installed as a package ❌ | already in the base system |
-| `vim` | `pkg_add vim` ❌ ambiguous flavours | `pkg_add vim--no_x11` |
-| Session binary | `startkde` ❌ removed in Plasma 6 | `/usr/local/bin/startplasma-x11` |
-| polkit / consolekit2 | `rcctl enable` ❌ no rc.d script | D-Bus activated, nothing to enable |
-| VMware Tools | `pkg_add vmware-tools` ❌ | `vmt(4)` in base + `vmwh` package |
+| `vim` | `pkg_add vim` ❌ ambiguous flavours | 7.8: `vim--no_x11`; **8.0: plain `vim`** (default is console-only, only `-gtk3` is GUI) |
+| Session binary | `startkde` ❌ removed in Plasma 6 | `/usr/local/bin/startplasma-x11` (still shipped in 6.7.5) |
+| polkit / consolekit2 | `rcctl enable` ❌ no rc.d script | D-Bus activated, nothing to enable (still true in 8.0: `polkit-127p0`, `consolekit2-1.2.7p0`) |
+| VMware Tools | `pkg_add vmware-tools` ❌ | `vmt(4)` in base + `vmwh-1.2v0` package |
+| Audio | manual PulseAudio setup | `plasma-pa-6.7.5` pulls `pulseaudio-17.0p4` |
 
 ---
 
@@ -136,8 +139,9 @@ aliases and not the export.
 
 ## Requirements and expectations
 
-- **OpenBSD 7.8** is the tested target. 7.9 and 8.x pass the pre-flight check;
-  other releases warn and continue.
+- **OpenBSD 8.0** is the current target and **7.8** the previous one; both are
+  verified against their own package indexes. 7.9 passes the pre-flight check.
+  Anything newer warns and continues.
 - **~2 GB free on `/usr`** and roughly **600–800 MB of RAM** for a Plasma
   session. Measure on your own hardware: these are order-of-magnitude figures,
   not benchmarks.
